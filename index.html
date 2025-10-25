@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>選擇影片並獲取原始 FPS</title>
-    <!-- 載入 MediaInfo.js，優先本地檔案，失敗則回退到 CDN -->
-    <script type="module" src="js/MediaInfoModule.js" onerror="this.src='https://cdn.jsdelivr.net/npm/mediainfo.js@0.2.1/dist/MediaInfoModule.min.js'"></script>
+    <!-- 載入 MediaInfo.js，設為 module -->
+    <script type="module" src="/js/MediaInfoModule.js" onerror="this.src='https://cdn.jsdelivr.net/npm/mediainfo.js@0.2.1/dist/MediaInfoModule.min.js'"></script>
 </head>
 <body>
     <h2>選擇影片檔案並獲取原始 FPS</h2>
@@ -16,7 +16,9 @@
     <p>原始 FPS: <span id="originalFps">0</span></p>
     <p>錯誤訊息: <span id="errorMsg">無</span></p>
 
-    <script>
+    <script type="module">
+        import MediaInfoFactory from '/js/MediaInfoModule.js';
+
         const videoInput = document.getElementById('videoInput');
         const videoPreview = document.getElementById('videoPreview');
         const originalFpsDisplay = document.getElementById('originalFps');
@@ -27,8 +29,8 @@
         // 初始化 MediaInfo.js
         async function initMediaInfo() {
             try {
-                mediaInfo = await MediaInfo({
-                    locateFile: () => 'wasm/MediaInfoModule.wasm' || 'https://cdn.jsdelivr.net/npm/mediainfo.js@0.2.1/dist/MediaInfo.wasm'
+                mediaInfo = await MediaInfoFactory({
+                    locateFile: () => '/wasm/MediaInfoModule.wasm'
                 });
                 console.log('MediaInfo.js 已成功載入');
                 errorMsgDisplay.textContent = 'MediaInfo.js 載入成功';
