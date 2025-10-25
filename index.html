@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>選擇影片並獲取原始 FPS</title>
-    <!-- 載入 MediaInfo.js (從 CDN 或本地) -->
-    <script src="https://unpkg.com/@mediainfo/mediainfo.js@0.17.0/dist/MediaInfoModule.js"></script>
-    <!-- 注意：需額外載入 WASM 檔案，見下方說明 -->
+    <!-- 載入 MediaInfo.js -->
+    <script src="https://unpkg.com/@mediainfo/mediainfo.js@0.2.1/dist/MediaInfoModule.min.js"></script>
 </head>
 <body>
     <h2>選擇影片檔案並獲取原始 FPS</h2>
@@ -16,12 +15,14 @@
     </video>
     <p>原始 FPS: <span id="originalFps">0</span></p>
     <p>渲染 FPS: <span id="renderFps">0</span></p>
+    <p>錯誤訊息: <span id="errorMsg">無</span></p>
 
     <script>
         const videoInput = document.getElementById('videoInput');
         const videoPreview = document.getElementById('videoPreview');
         const originalFpsDisplay = document.getElementById('originalFps');
         const renderFpsDisplay = document.getElementById('renderFps');
+        const errorMsgDisplay = document.getElementById('errorMsg');
         
         let mediaInfo = null;
         let frameCount = 0;
@@ -31,11 +32,15 @@
         // 初始化 MediaInfo.js
         async function initMediaInfo() {
             try {
-                mediaInfo = await MediaInfo({ locateFile: () => 'https://unpkg.com/@mediainfo/mediainfo.js@0.17.0/dist/MediaInfo.wasm' });
-                console.log('MediaInfo.js 已載入');
+                mediaInfo = await MediaInfo({
+                    locateFile: () => 'https://unpkg.com/@mediainfo/mediainfo.js@0.2.1/dist/MediaInfo.wasm'
+                });
+                console.log('MediaInfo.js 已成功載入');
+                errorMsgDisplay.textContent = 'MediaInfo.js 載入成功';
             } catch (error) {
                 console.error('載入 MediaInfo.js 失敗:', error);
-                originalFpsDisplay.textContent = '解析失敗 (需 WASM 支援)';
+                errorMsgDisplay.textContent = 'MediaInfo.js 載入失敗 (請檢查網路或 CDN)';
+                originalFpsDisplay.textContent = '無法解析';
             }
         }
         initMediaInfo();
@@ -44,60 +49,66 @@
         videoInput.addEventListener('change', async function(event) {
             const file = event.target.files[0];
             if (file && file.type.startsWith('video/')) {
+                // 重置顯示
+                originalFpsDisplay.textContent = '解析中...';
+                errorMsgDisplay.textContent = '無';
+                
                 // 解析原始 FPS
                 await parseOriginalFps(file);
                 
-                // 載入預覽
+                // 載入影片預覽
                 const url = URL.createObjectURL(file);
                 videoPreview.src = url;
                 videoPreview.style.display = 'block';
                 videoPreview.load();
                 
-                // 等待載入後自動播放並計算渲染 FPS
                 videoPreview.addEventListener('loadedmetadata', () => {
-                    videoPreview.play();
+                    videoPreview.play().catch(err => {
+                        console.error('自動播放失敗:', err);
+                        errorMsgDisplay.textContent = '自動播放失敗 (請手動播放)';
+                    });
                 }, { once: true });
             } else {
                 alert('請選擇有效的影片檔案！');
+                errorMsgDisplay.textContent = '無效的檔案類型';
             }
         });
 
         // 解析原始 FPS
         async function parseOriginalFps(file) {
             if (!mediaInfo) {
-                originalFpsDisplay.textContent = 'MediaInfo 未載入';
+                originalFpsDisplay.textContent = 'MediaInfo 未初始化';
+                errorMsgDisplay.textContent = 'MediaInfo 未初始化，請檢查控制台';
                 return;
             }
             
             try {
                 const arrayBuffer = await file.arrayBuffer();
-                const info = await mediaInfo.analyzeData(arrayBuffer);
-                const json = await mediaInfo.getAsJson(info);
+                const info = await mediaInfo.analyzeData(file.size, () => arrayBuffer);
+                const json = JSON.parse(info);
                 
-                // 解析 JSON 找出 FPS (在 Video 軌道中)
-                const parsed = JSON.parse(json);
                 let fps = 0;
-                if (parsed.media && parsed.media.track) {
-                    for (const track of parsed.media.track) {
-                        if (track.type === 'Video' && track.FrameRate) {
-                            fps = track.FrameRate;
+                if (json.media && json.media.track) {
+                    for (const track of json.media.track) {
+                        if (track['@type'] === 'Video' && track.FrameRate) {
+                            fps = parseFloat(track.FrameRate);
                             break;
                         }
                     }
                 }
                 
-                if (fps > 0) {
-                    originalFpsDisplay.textContent = Math.round(fps);
-                } else {
-                    originalFpsDisplay.textContent = '無法解析 FPS';
+                originalFpsDisplay.textContent = fps > 0 ? Math.round(fps) : '無法解析 FPS';
+                if (fps === 0) {
+                    errorMsgDisplay.textContent = '未找到影片軌道或 FPS 資訊';
                 }
             } catch (error) {
                 console.error('解析 FPS 失敗:', error);
                 originalFpsDisplay.textContent = '解析錯誤';
+                errorMsgDisplay.textContent = `解析錯誤: ${error.message}`;
             }
         }
 
-        // 渲染 FPS 計算 (fallback 或額外顯示)
+        // 渲染 FPS 計算
         function startRenderFpsCalculation() {
             frameCount = 0;
             startTime = performance.now();
@@ -135,7 +146,7 @@
             if (animationId) cancelAnimationFrame(animationId);
         });
 
-        // 清理 URL
+        // 清理資源
         window.addEventListener('beforeunload', () => {
             if (videoPreview.src) URL.revokeObjectURL(videoPreview.src);
         });
