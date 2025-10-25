@@ -17,7 +17,14 @@
     <p>錯誤訊息: <span id="errorMsg">無</span></p>
 
     <script type="module">
-        import MediaInfoFactory from '/video-fps/js/MediaInfoModule.js';
+        // 嘗試導入 Module 或 MediaInfoFactory，根據檔案內容調整
+        let MediaInfoFactory;
+        try {
+            MediaInfoFactory = await import('/video-fps/js/MediaInfoModule.js').then(module => module.default || module.Module);
+        } catch (error) {
+            console.error('模組導入失敗:', error);
+            MediaInfoFactory = null;
+        }
 
         const videoInput = document.getElementById('videoInput');
         const videoPreview = document.getElementById('videoPreview');
@@ -28,6 +35,11 @@
 
         // 初始化 MediaInfo.js
         async function initMediaInfo() {
+            if (!MediaInfoFactory) {
+                errorMsgDisplay.textContent = 'MediaInfo.js 載入失敗 (請檢查控制台)';
+                originalFpsDisplay.textContent = '無法解析';
+                return;
+            }
             try {
                 mediaInfo = await MediaInfoFactory({
                     locateFile: () => '/video-fps/wasm/MediaInfoModule.wasm'
