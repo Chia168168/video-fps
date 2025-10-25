@@ -2,27 +2,49 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>計算影片 FPS</title>
+    <title>選擇影片並計算 FPS</title>
 </head>
 <body>
-    <video id="video" width="640" height="360" controls>
-        <source src="your-video.mp4" type="video/mp4">
+    <h2>選擇影片檔案並計算 FPS</h2>
+    <input type="file" id="videoInput" accept="video/*">
+    <br><br>
+    <video id="videoPreview" width="640" height="360" controls style="display: none;">
         您的瀏覽器不支援 video 標籤。
     </video>
-    <p>FPS: <span id="fps">0</span></p>
+    <p>當前 FPS: <span id="fps">0</span></p>
 
     <script>
-        const video = document.getElementById('video');
+        const videoInput = document.getElementById('videoInput');
+        const videoPreview = document.getElementById('videoPreview');
         const fpsDisplay = document.getElementById('fps');
+        
         let frameCount = 0;
         let startTime = null;
+        let animationId = null;
 
-        video.addEventListener('play', () => {
-            // 重置計數
+        // 選擇檔案事件
+        videoInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('video/')) {
+                const url = URL.createObjectURL(file);
+                videoPreview.src = url;
+                videoPreview.style.display = 'block';
+                videoPreview.load();
+                
+                // 等待載入完成後自動播放並開始計算 FPS
+                videoPreview.addEventListener('loadedmetadata', () => {
+                    videoPreview.play();
+                });
+            } else {
+                alert('請選擇有效的影片檔案！');
+            }
+        });
+
+        // 開始計算 FPS（使用 requestAnimationFrame）
+        function startFPSCalculation() {
             frameCount = 0;
             startTime = performance.now();
 
-            // 使用 requestAnimationFrame 計算 FPS
             function calculateFPS(timestamp) {
                 if (!startTime) startTime = timestamp;
                 
@@ -37,20 +59,37 @@
                     startTime = timestamp;
                 }
 
-                if (!video.paused && !video.ended) {
-                    requestAnimationFrame(calculateFPS);
+                if (!videoPreview.paused && !videoPreview.ended) {
+                    animationId = requestAnimationFrame(calculateFPS);
                 }
             }
 
-            requestAnimationFrame(calculateFPS);
+            animationId = requestAnimationFrame(calculateFPS);
+        }
+
+        // 影片開始播放時啟動 FPS 計算
+        videoPreview.addEventListener('play', startFPSCalculation);
+
+        // 暫停或結束時停止計算並清理
+        videoPreview.addEventListener('pause', () => {
+            fpsDisplay.textContent = '0';
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
         });
 
-        // 當影片暫停或結束時，停止計算
-        video.addEventListener('pause', () => {
+        videoPreview.addEventListener('ended', () => {
             fpsDisplay.textContent = '0';
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
         });
-        video.addEventListener('ended', () => {
-            fpsDisplay.textContent = '0';
+
+        // 清理資源
+        videoPreview.addEventListener('loadeddata', () => {
+            if (videoPreview.src) {
+                URL.revokeObjectURL(videoPreview.src);
+            }
         });
     </script>
 </body>
