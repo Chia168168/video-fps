@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>影片FPS計算器</title>
+    <title>影片FPS計算器 - 高精度版本</title>
     <style>
         * {
             margin: 0;
@@ -20,7 +20,7 @@
         }
         
         .container {
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -211,6 +211,22 @@
             line-height: 1.6;
         }
         
+        .warning-box {
+            background: rgba(255, 165, 0, 0.2);
+            border-left: 4px solid orange;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        
+        .troubleshooting {
+            background: rgba(255, 0, 0, 0.2);
+            border-left: 4px solid red;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        
         footer {
             text-align: center;
             margin-top: 40px;
@@ -233,8 +249,8 @@
 <body>
     <div class="container">
         <header>
-            <h1>影片FPS計算器</h1>
-            <p class="subtitle">上傳影片文件，實時計算幀率（FPS）</p>
+            <h1>影片FPS計算器 - 高精度版本</h1>
+            <p class="subtitle">使用進階方法檢測高幀率影片</p>
         </header>
         
         <div class="main-content">
@@ -245,7 +261,7 @@
                         <i>📹</i>
                         <p>請上傳影片文件</p>
                     </div>
-                    <video id="videoPlayer" controls style="display: none;"></video>
+                    <video id="videoPlayer" controls style="display: none;" playsinline></video>
                 </div>
                 
                 <div class="file-input-container">
@@ -288,20 +304,35 @@
         </div>
         
         <div class="info-section">
-            <h2>關於FPS計算</h2>
-            <p>FPS（Frames Per Second）是指影片每秒顯示的畫面數量。較高的FPS意味著更流暢的影片播放體驗。</p>
-            <p>常見的FPS值：</p>
-            <ul>
-                <li>24 FPS - 電影標準</li>
-                <li>30 FPS - 影片錄製常用</li>
-                <li>60 FPS - 高流暢度影片</li>
-                <li>120+ FPS - 高速攝影</li>
-            </ul>
-            <p>此工具通過分析影片的時間戳記變化來計算FPS，提供實時的FPS統計數據。</p>
+            <h2>關於高幀率影片檢測</h2>
+            
+            <div class="warning-box">
+                <h3>為什麼120fps影片只顯示60fps？</h3>
+                <p>這通常是因為瀏覽器或硬體的限制：</p>
+                <ul>
+                    <li>瀏覽器可能限制影片播放幀率以節省資源</li>
+                    <li>顯示器刷新率可能只有60Hz，無法顯示更高幀率</li>
+                    <li>瀏覽器的requestAnimationFrame通常與顯示器刷新率同步</li>
+                    <li>某些瀏覽器對高幀率影片的解碼支援有限</li>
+                </ul>
+            </div>
+            
+            <div class="troubleshooting">
+                <h3>提高檢測準確性的方法</h3>
+                <ul>
+                    <li>使用Chrome或Edge瀏覽器（對高幀率支援較好）</li>
+                    <li>確保顯示器支援高刷新率（120Hz+）</li>
+                    <li>在瀏覽器中啟用硬體加速</li>
+                    <li>使用較短的影片片段進行測試</li>
+                    <li>嘗試不同的影片編碼格式（H.264, VP9等）</li>
+                </ul>
+            </div>
+            
+            <p>此工具使用多種方法來提高FPS檢測的準確性，包括使用Video.requestVideoFrameCallback() API（如果可用）和改進的時間戳記比較方法。</p>
         </div>
         
         <footer>
-            <p>影片FPS計算器 &copy; 2023 | 使用HTML5和JavaScript構建</p>
+            <p>影片FPS計算器 - 高精度版本 &copy; 2023 | 使用HTML5和JavaScript構建</p>
         </footer>
     </div>
 
@@ -323,11 +354,15 @@
             let lastTime = 0;
             let fpsValues = [];
             let animationId;
+            let rvfcId; // requestVideoFrameCallback ID
+            
+            // 檢查是否支援 requestVideoFrameCallback
+            const hasRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
             
             // 初始化FPS圖表
             function initFpsGraph() {
                 fpsGraph.innerHTML = '';
-                const barCount = 30;
+                const barCount = 40;
                 for (let i = 0; i < barCount; i++) {
                     const bar = document.createElement('div');
                     bar.className = 'fps-bar';
@@ -384,8 +419,78 @@
                 lastTime = performance.now();
                 fpsValues = [];
                 
+                videoPlayer.currentTime = 0;
                 videoPlayer.play();
-                calculateFPS();
+                
+                // 使用 requestVideoFrameCallback 如果可用
+                if (hasRVFC) {
+                    console.log("使用 requestVideoFrameCallback 方法");
+                    videoPlayer.requestVideoFrameCallback(calculateFPSWithRVFC);
+                } else {
+                    console.log("使用 requestAnimationFrame 方法");
+                    calculateFPSWithRAF();
+                }
+            }
+            
+            // 使用 requestVideoFrameCallback 計算FPS（更精確）
+            function calculateFPSWithRVFC(now, metadata) {
+                if (!isCalculating) return;
+                
+                frameCount++;
+                const currentTime = performance.now();
+                
+                // 每秒計算一次FPS
+                if (currentTime - lastTime >= 1000) {
+                    const fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+                    updateFPSValues(fps);
+                    
+                    // 重置計數器
+                    frameCount = 0;
+                    lastTime = currentTime;
+                }
+                
+                // 請求下一帧
+                rvfcId = videoPlayer.requestVideoFrameCallback(calculateFPSWithRVFC);
+            }
+            
+            // 使用 requestAnimationFrame 計算FPS（兼容性更好）
+            function calculateFPSWithRAF() {
+                if (!isCalculating) return;
+                
+                const currentTime = performance.now();
+                frameCount++;
+                
+                // 每秒計算一次FPS
+                if (currentTime - lastTime >= 1000) {
+                    const fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+                    updateFPSValues(fps);
+                    
+                    // 重置計數器
+                    frameCount = 0;
+                    lastTime = currentTime;
+                }
+                
+                animationId = requestAnimationFrame(calculateFPSWithRAF);
+            }
+            
+            // 更新FPS值
+            function updateFPSValues(fps) {
+                // 更新FPS值
+                fpsValues.push(fps);
+                currentFpsElement.textContent = fps.toFixed(2);
+                
+                // 計算平均FPS
+                const avgFps = fpsValues.reduce((a, b) => a + b, 0) / fpsValues.length;
+                averageFpsElement.textContent = avgFps.toFixed(2);
+                
+                // 計算最小和最大FPS
+                const minFps = Math.min(...fpsValues);
+                const maxFps = Math.max(...fpsValues);
+                minFpsElement.textContent = minFps.toFixed(2);
+                maxFpsElement.textContent = maxFps.toFixed(2);
+                
+                // 更新FPS圖表
+                updateFpsGraph(fps);
             }
             
             // 停止計算
@@ -393,6 +498,11 @@
                 isCalculating = false;
                 if (animationId) {
                     cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+                if (rvfcId && hasRVFC) {
+                    videoPlayer.cancelVideoFrameCallback(rvfcId);
+                    rvfcId = null;
                 }
                 videoPlayer.pause();
             }
@@ -406,42 +516,6 @@
                 initFpsGraph();
             }
             
-            // 計算FPS
-            function calculateFPS() {
-                if (!isCalculating) return;
-                
-                const currentTime = performance.now();
-                frameCount++;
-                
-                // 每秒計算一次FPS
-                if (currentTime - lastTime >= 1000) {
-                    const fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
-                    
-                    // 更新FPS值
-                    fpsValues.push(fps);
-                    currentFpsElement.textContent = fps.toFixed(2);
-                    
-                    // 計算平均FPS
-                    const avgFps = fpsValues.reduce((a, b) => a + b, 0) / fpsValues.length;
-                    averageFpsElement.textContent = avgFps.toFixed(2);
-                    
-                    // 計算最小和最大FPS
-                    const minFps = Math.min(...fpsValues);
-                    const maxFps = Math.max(...fpsValues);
-                    minFpsElement.textContent = minFps.toFixed(2);
-                    maxFpsElement.textContent = maxFps.toFixed(2);
-                    
-                    // 更新FPS圖表
-                    updateFpsGraph(fps);
-                    
-                    // 重置計數器
-                    frameCount = 0;
-                    lastTime = currentTime;
-                }
-                
-                animationId = requestAnimationFrame(calculateFPS);
-            }
-            
             // 更新FPS圖表
             function updateFpsGraph(fps) {
                 const bars = fpsGraph.querySelectorAll('.fps-bar');
@@ -451,9 +525,25 @@
                     bars[i].style.height = bars[i-1].style.height;
                 }
                 
-                // 添加新數據 (限制FPS最大值為120以便顯示)
-                const normalizedFps = Math.min(fps, 120);
-                bars[0].style.height = `${(normalizedFps / 120) * 100}%`;
+                // 添加新數據 (限制FPS最大值為240以便顯示)
+                const normalizedFps = Math.min(fps, 240);
+                bars[0].style.height = `${(normalizedFps / 240) * 100}%`;
+                
+                // 根據FPS值改變顏色
+                if (fps >= 100) {
+                    bars[0].style.background = '#00ff00'; // 綠色表示高FPS
+                } else if (fps >= 60) {
+                    bars[0].style.background = '#ffff00'; // 黃色表示中等FPS
+                } else {
+                    bars[0].style.background = '#8e2de2'; // 紫色表示低FPS
+                }
+            }
+            
+            // 顯示使用的檢測方法
+            if (hasRVFC) {
+                console.log("瀏覽器支援 requestVideoFrameCallback，將使用更精確的FPS檢測方法");
+            } else {
+                console.log("瀏覽器不支援 requestVideoFrameCallback，將使用 requestAnimationFrame 方法");
             }
         });
     </script>
