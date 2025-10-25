@@ -1,40 +1,61 @@
 <!doctype html>
-<html lang="en-us">
+<html lang="zh-Hant">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>mediainfo.js simple demo</title>
+    <title>影片 FPS 與總幀數檢測</title>
     <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-      }
-      body * {
-        box-sizing: border-box;
-      }
-      #wrapper {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        padding: 8px;
-        position: absolute;
-        width: 100%;
-      }
-      #fileinput {
-        padding-bottom: 8px;
-      }
-      #output {
-        height: 100%;
-      }
+      body { font-family:"Noto Sans TC",sans-serif;background:#f6f6f9;margin:0;padding:20px;text-align:center;color:#222; }
+      h1 { margin-top:0;font-size:22px; }
+      input[type=file]{margin:20px auto;display:block;}
+      video{max-width:90%;border-radius:8px;background:#000;margin-top:20px;}
+      #info{background:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.05);max-width:600px;margin:20px auto;padding:16px;text-align:left;}
+      #info p{margin:6px 0;font-size:15px;}
     </style>
   </head>
   <body>
-    <div id="wrapper">
-      <input disabled type="file" id="fileinput" name="fileinput" />
-      <textarea id="output"></textarea>
-    </div>
-    <script type="text/javascript" src="https://unpkg.com/mediainfo.js"></script>
-    <script type="text/javascript" src="./example.js"></script>
+    <h1>🎬 影片 FPS / Frame 數 檢測</h1>
+    <input type="file" id="fileinput" accept="video/*">
+    <div id="info">請選擇影片檔案</div>
+    <video id="video" controls playsinline></video>
+
+    <!-- 使用官方 CDN，內含 mediainfo.min.js + wasm -->
+    <script src="https://cdn.jsdelivr.net/npm/mediainfo.js/dist/mediainfo.min.js"></script>
+    <script>
+      const input = document.getElementById('fileinput');
+      const info = document.getElementById('info');
+      const video = document.getElementById('video');
+
+      async function analyze(file){
+        info.textContent = '分析中...';
+        const mediainfo = await MediaInfo({ format: 'object' });
+        const result = await mediainfo.analyzeData(() => file.size, chunkSize => file.slice(0, chunkSize));
+        const vtrack = result.media.track.find(t => t['@type'] === 'Video');
+        if (!vtrack) {
+          info.innerHTML = '無法讀取影片資訊';
+          return;
+        }
+        const fps = vtrack.FrameRate || '未知';
+        const frames = vtrack.FrameCount || '未知';
+        const dur = vtrack.Duration ? (vtrack.Duration/1000).toFixed(2)+' 秒' : '未知';
+        const size = vtrack.Width && vtrack.Height ? `${vtrack.Width}×${vtrack.Height}` : '未知';
+        const fmt = vtrack.Format || '未知';
+        info.innerHTML = `
+          <p>🎞 <b>FPS：</b>${fps}</p>
+          <p>🧮 <b>總幀數：</b>${frames}</p>
+          <p>⏱ <b>長度：</b>${dur}</p>
+          <p>📏 <b>解析度：</b>${size}</p>
+          <p>💾 <b>編碼格式：</b>${fmt}</p>
+        `;
+      }
+
+      input.addEventListener('change', async e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        video.src = url;
+        video.load();
+        analyze(file);
+      });
+    </script>
   </body>
 </html>
