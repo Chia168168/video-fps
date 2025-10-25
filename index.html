@@ -1,140 +1,40 @@
 <!doctype html>
-<html lang="zh-Hant">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>影片 FPS 測量器（iPhone 可用）</title>
-<style>
-body{font-family:"Noto Sans TC",system-ui,sans-serif;background:#f5f6fa;color:#222;margin:20px;}
-.panel{background:#fff;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.06);padding:20px;max-width:900px;margin:auto;}
-video{max-width:100%;border-radius:8px;background:#000;margin-top:10px;}
-.stats{display:flex;flex-wrap:wrap;gap:12px;margin-top:15px;}
-.stat{background:#f2f4f8;border-radius:8px;padding:8px 12px;min-width:180px;}
-.note{font-size:13px;color:#555;margin-top:10px;line-height:1.5;}
-label.file{border:1px dashed #c7d6ee;padding:8px 12px;border-radius:8px;cursor:pointer;display:inline-block;}
-.alert{background:#fff3cd;color:#856404;padding:10px 12px;border-radius:8px;margin-top:10px;display:none;}
-</style>
-</head>
-<body>
-<div class="panel">
-  <h1>影片 FPS 測量器（iPhone 可用）</h1>
-  <label class="file">選擇影片
-    <input id="fileInput" type="file" accept="video/*" style="display:none">
-  </label>
-  <div class="alert" id="alertBox"></div>
-  <div class="stats">
-    <div class="stat">🎬 原始 FPS：<strong id="metaFps">-</strong></div>
-    <div class="stat">🎥 實際播放 FPS：<strong id="realFps">-</strong></div>
-    <div class="stat">幀數：<strong id="frames">0</strong></div>
-    <div class="stat">解析度：<strong id="resolution">-</strong></div>
-    <div class="stat">長度：<strong id="duration">-</strong></div>
-    <div class="stat">模式：<strong id="mode">-</strong></div>
-  </div>
-  <video id="video" controls playsinline></video>
-  <p class="note">
-    📱 iPhone 錄的 120fps 影片，Safari 會自動降為約 30fps 顯示。<br>
-    若影片仍無法播放，代表格式是 HEVC (hvc1)，iOS 無法以 dataURL 播放。
-  </p>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/mediainfo.js/dist/mediainfo.min.js"></script>
-<script>
-(async()=>{
-  const fileInput=document.getElementById('fileInput');
-  const video=document.getElementById('video');
-  const alertBox=document.getElementById('alertBox');
-  const metaFps=document.getElementById('metaFps');
-  const realFps=document.getElementById('realFps');
-  const frames=document.getElementById('frames');
-  const resolution=document.getElementById('resolution');
-  const duration=document.getElementById('duration');
-  const mode=document.getElementById('mode');
-  const mediainfo=await MediaInfo({format:'object'});
-
-  let measuring=false,frameCount=0,lastTime=0,fpsSamples=[];
-
-  function showAlert(msg){alertBox.style.display='block';alertBox.textContent=msg;}
-  function avg(arr){return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;}
-
-  async function getMeta(file){
-    try{
-      const result=await mediainfo.analyzeData(()=>file.size,chunk=>file.slice(0,chunk));
-      const track=result.media?.track?.find(t=>t['@type']==='Video');
-      return track||{};
-    }catch(e){console.error(e);return{};}
-  }
-
-  fileInput.addEventListener('change',async e=>{
-    const file=e.target.files?.[0];
-    if(!file)return;
-    showAlert('📤 載入中...');
-    const reader=new FileReader();
-    reader.onload=async function(ev){
-      const dataUrl=ev.target.result;
-      video.src=dataUrl;
-      const meta=await getMeta(file);
-      metaFps.textContent=meta.FrameRate||'未知';
-      resolution.textContent=meta.Width&&meta.Height?`${meta.Width}×${meta.Height}`:'-';
-      duration.textContent=meta.Duration?(meta.Duration/1000).toFixed(2)+'秒':'-';
-      showAlert('✅ 影片已載入，請點擊影片播放開始測量。');
-    };
-    reader.onerror=function(){
-      showAlert('❌ 無法讀取影片（iOS 可能不支援此格式）');
-    };
-    reader.readAsDataURL(file);
-  });
-
-  video.addEventListener('loadedmetadata',()=>{
-    resolution.textContent=`${video.videoWidth}×${video.videoHeight}`;
-    duration.textContent=isFinite(video.duration)?video.duration.toFixed(2)+'秒':'-';
-  });
-
-  video.addEventListener('play',()=>{
-    if(measuring)return;
-    measuring=true;
-    frameCount=0;fpsSamples=[];lastTime=performance.now();
-    if('requestVideoFrameCallback'in HTMLVideoElement.prototype){
-      mode.textContent='精準模式';
-      frameLoop();
-    }else{
-      mode.textContent='模擬模式';
-      animLoop();
-    }
-  });
-  video.addEventListener('pause',()=>measuring=false);
-  video.addEventListener('ended',()=>measuring=false);
-
-  function frameLoop(){
-    if(!measuring)return;
-    video.requestVideoFrameCallback((now,meta)=>{
-      const dt=now-lastTime;
-      lastTime=now;
-      const fps=1000/dt;
-      frameCount++;
-      fpsSamples.push(fps);
-      if(fpsSamples.length>30)fpsSamples.shift();
-      frames.textContent=frameCount;
-      realFps.textContent=avg(fpsSamples).toFixed(2);
-      frameLoop();
-    });
-  }
-
-  function animLoop(){
-    if(!measuring)return;
-    const now=performance.now();
-    const dt=now-lastTime;
-    if(dt>0){
-      const fps=1000/dt;
-      frameCount++;
-      fpsSamples.push(fps);
-      if(fpsSamples.length>30)fpsSamples.shift();
-      frames.textContent=frameCount;
-      realFps.textContent=avg(fpsSamples).toFixed(2);
-    }
-    lastTime=now;
-    requestAnimationFrame(animLoop);
-  }
-})();
-</script>
-</body>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>mediainfo.js simple demo</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body * {
+        box-sizing: border-box;
+      }
+      #wrapper {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        padding: 8px;
+        position: absolute;
+        width: 100%;
+      }
+      #fileinput {
+        padding-bottom: 8px;
+      }
+      #output {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wrapper">
+      <input disabled type="file" id="fileinput" name="fileinput" />
+      <textarea id="output"></textarea>
+    </div>
+    <script type="text/javascript" src="https://unpkg.com/mediainfo.js"></script>
+    <script type="text/javascript" src="./example.js"></script>
+  </body>
 </html>
