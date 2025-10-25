@@ -292,52 +292,17 @@ input[type="range"] {
 <script>
     let mediainfoInstance = null;
     
-    // --- FPS 自動設定/更新邏輯 ---
-    
-    // 從 MediaInfo 的文字輸出中解析出 FPS
-    function parseFps(mediainfoText) {
-        // 尋找格式如 "Frame rate : 29.970 FPS" 的欄位
-        const match = mediainfoText.match(/Frame rate\s+:\s*(\d+(\.\d+)?)\s*FPS/);
-        if (match && match[1]) {
-            return parseFloat(match[1]);
-        }
-        // 備用方案: 尋找 JSON 格式或其它格式的 "FrameRate"
-        const matchRaw = mediainfoText.match(/"FrameRate"\s*:\s*(\d+(\.\d+)?)/);
-         if (matchRaw && matchRaw[1]) {
-            return parseFloat(matchRaw[1]);
-        }
-        return null; // 未找到
-    }
-    
-    // 根據偵測到的 FPS 更新 UI 和計算變數
-    function setDetectedFPS(detectedFps) {
-        const fpsSelect = document.getElementById('fpsSelect');
-        const customFpsInput = document.getElementById('customFpsInput');
-        
-        // 四捨五入到整數作為設定值，但保留浮點數的精確度
-        const roundedFps = Math.round(detectedFps);
-        assumedFPS = roundedFps;
-        frameDuration = 1 / assumedFPS;
+    // 啟動 MediaInfo 並初始化播放器
+    MediaInfo.mediaInfoFactory({ format: 'text' }, (mediainfo) => {
+        // 確保 MediaInfo 實例化完成後才啟動播放器邏輯
+        initPlayer(mediainfo);
+    });
 
-        // 檢查四捨五入後的 FPS 是否在下拉選單中
-        if (fpsSelect.querySelector(`option[value="${roundedFps}"]`)) {
-            fpsSelect.value = roundedFps.toString();
-            customFpsInput.style.display = 'none';
-        } else {
-            // 如果不在清單中，則設為 'custom' 並更新輸入框
-            fpsSelect.value = 'custom';
-            customFpsInput.style.display = 'block';
-        }
-        customFpsInput.value = assumedFPS.toString();
-        updateTimeInfo();
-        console.log(`Detected FPS: ${detectedFps}. Set assumed FPS to: ${assumedFPS}`);
-    }
-
-
-    // --- 播放器核心邏輯 (包裝在 initPlayer 內) ---
+    // --- 播放器核心邏輯 (包裝在 initPlayer 內，解決變數作用域問題) ---
     function initPlayer(mediainfo) {
         mediainfoInstance = mediainfo;
 
+        // --- DOM 元素和核心變數宣告 ---
         const video = document.getElementById('videoPlayer');
         const fileInput = document.getElementById('fileInput'); 
         const togglePlayBtn = document.getElementById('togglePlay');
@@ -354,33 +319,36 @@ input[type="range"] {
         const speedMenu = document.getElementById('speedMenu');
         const speedOptions = speedMenu.querySelectorAll('button');
         const videoDisplay = document.getElementById('videoDisplay'); 
-        const controlsPanel = document.querySelector('.controls-panel'); 
         
         const stepBackwardBtn = document.getElementById('stepBackward');
         const frameBackwardBtn = document.getElementById('frameBackward');
         const frameForwardBtn = document.getElementById('frameForward');
         const stepForwardBtn = document.getElementById('stepForward');
         
+        // 核心變數，確保所有函數都讀寫這些區域變數
         let assumedFPS = 30; 
         let frameDuration = 1 / assumedFPS;
         let currentRate = '1.0'; 
         let isDragging = false; 
         let lastObjectURL = null; 
         
+        // 長按變數
         let holdTimer = null;
         let holdInterval = 100; 
         
+        // 縮放/平移變數
         let currentScale = 1;
-        let initialDistance = 0;
-        let initialScale = 1;
         let translateX = 0;
         let translateY = 0;
+        let initialScale = 1;
+        let initialDistance = 0;
         let startX = 0;
         let startY = 0;
         let lastTranslateX = 0;
         let lastTranslateY = 0; 
-        
-        // --- 輔助函數 ---
+
+
+        // --- 輔助函數 (必須在 initPlayer 內定義才能存取 assumedFPS) ---
         
         function applyTransform() {
             videoDisplay.style.transform = `translate(${translateX}px, ${translateY}px) scale(${currentScale})`;
@@ -393,6 +361,7 @@ input[type="range"] {
                  return;
             }
             
+            // 使用區域變數 assumedFPS
             const currentFrame = Math.round(currentTime * assumedFPS); 
 
             const formatTime = (seconds) => {
@@ -406,20 +375,56 @@ input[type="range"] {
         }
         
         function initializeFPS(defaultFps = 30) {
+            // 設定區域變數
             assumedFPS = defaultFps;
             frameDuration = 1 / assumedFPS;
             
-            if (fpsSelect.querySelector(`option[value="${defaultFps}"]`)) {
-                fpsSelect.value = defaultFps.toString();
+            // 更新 UI
+            const roundedFps = Math.round(defaultFps);
+            if (fpsSelect.querySelector(`option[value="${roundedFps}"]`)) {
+                fpsSelect.value = roundedFps.toString();
                 customFpsInput.style.display = 'none';
             } else {
                 fpsSelect.value = 'custom';
                 customFpsInput.style.display = 'block';
             }
-            customFpsInput.value = defaultFps.toString();
+            customFpsInput.value = roundedFps.toString();
             updateTimeInfo();
         }
+
+        // 從 MediaInfo 的文字輸出中解析出 FPS
+        function parseFps(mediainfoText) {
+            const match = mediainfoText.match(/Frame rate\s+:\s*(\d+(\.\d+)?)\s*FPS/);
+            if (match && match[1]) {
+                return parseFloat(match[1]);
+            }
+            const matchRaw = mediainfoText.match(/"FrameRate"\s*:\s*(\d+(\.\d+)?)/);
+             if (matchRaw && matchRaw[1]) {
+                return parseFloat(matchRaw[1]);
+            }
+            return null;
+        }
         
+        // 根據偵測到的 FPS 更新 UI 和計算變數
+        function setDetectedFPS(detectedFps) {
+            // 核心修正：確保更新區域變數
+            const roundedFps = Math.round(detectedFps);
+            assumedFPS = roundedFps; 
+            frameDuration = 1 / assumedFPS;
+
+            // 檢查四捨五入後的 FPS 是否在下拉選單中
+            if (fpsSelect.querySelector(`option[value="${roundedFps}"]`)) { 
+                fpsSelect.value = roundedFps.toString(); 
+                customFpsInput.style.display = 'none';
+            } else {
+                fpsSelect.value = 'custom';
+                customFpsInput.style.display = 'block';
+            }
+            customFpsInput.value = assumedFPS.toString();
+            updateTimeInfo();
+            console.log(`Detected FPS: ${detectedFps}. Set assumed FPS to: ${assumedFPS}`);
+        }
+
         // --- 播放器啟動與設定 ---
         
         video.src = ''; 
@@ -439,8 +444,8 @@ input[type="range"] {
             }
 
             if (newFps > 0) {
-                assumedFPS = newFps;
-                frameDuration = 1 / assumedFPS;
+                assumedFPS = newFps; // 更新區域變數
+                frameDuration = 1 / assumedFPS; // 更新區域變數
             } else if (fpsValue !== 'custom') {
                 fpsSelect.value = assumedFPS.toString();
             }
@@ -464,7 +469,6 @@ input[type="range"] {
 
                 // 核心邏輯：先用 MediaInfo 讀取 FPS
                 if (mediainfoInstance) {
-                    // 實作 readChunk 函數
                     const readChunk = async (chunkSize, offset) =>
                         new Uint8Array(await file.slice(offset, offset + chunkSize).arrayBuffer());
 
@@ -473,7 +477,7 @@ input[type="range"] {
                         .then((result) => {
                             const detectedFps = parseFps(result);
                             if (detectedFps) {
-                                setDetectedFPS(detectedFps); 
+                                setDetectedFPS(detectedFps); // 成功偵測並設定
                             } else {
                                 initializeFPS(30); // 解析失敗，回到預設 30 FPS
                             }
@@ -494,9 +498,9 @@ input[type="range"] {
                     video.load(); 
                 }
 
+                // 重設播放狀態和UI
                 video.removeAttribute('controls');
                 togglePlayBtn.textContent = '▶';
-                
                 currentRate = '1.0'; 
                 speedOptions.forEach(b => b.classList.remove('active'));
                 const defaultSpeedBtn = speedMenu.querySelector('[data-rate="1.0"]');
@@ -509,15 +513,12 @@ input[type="range"] {
                 currentScale = 1;
                 translateX = 0;
                 translateY = 0;
-                lastTranslateX = 0;
-                lastTranslateY = 0;
                 applyTransform();
             }
         });
 
-        // --- 略過其他事件處理 (長按、播放、縮放等，這些邏輯與上個版本相同) ---
+        // --- 略過其他事件處理 (長按、播放、縮放等，邏輯與上個版本相同) ---
         
-        // ... (長按邏輯)
         function executeAction(action) {
             if (!video.src) return;
             video.pause();
@@ -536,6 +537,7 @@ input[type="range"] {
                 case 'stepForward': video.currentTime = Math.min(video.duration, video.currentTime + 0.1); break;
             }
         }
+        
         function startHold(action) {
             executeAction(action);
             clearTimeout(holdTimer); 
@@ -575,8 +577,7 @@ input[type="range"] {
             btn.id.addEventListener('touchend', stopHoldHandler);
             btn.id.addEventListener('touchcancel', stopHoldHandler);
         });
-
-        // ... (影片播放/暫停, timeupdate, metadata, 進度條, 儲存畫面邏輯 - 保持不變)
+        
         video.addEventListener('loadedmetadata', () => {
             progressBar.max = Math.floor(video.duration * 1000);
             progressBar.value = 0;
@@ -592,6 +593,7 @@ input[type="range"] {
             }
 
             if (video.paused || video.ended) {
+                // 使用正確的 frameDuration
                 if (currentRate === '1fps') {
                     video.playbackRate = frameDuration;
                 } else {
@@ -649,7 +651,6 @@ input[type="range"] {
             document.body.removeChild(link);
         });
 
-        // ... (速度選單和縮放邏輯 - 保持不變)
         speedBtn.addEventListener('click', (e) => {
             const controlsSetupHeight = document.querySelector('.controls-group.controls-setup').offsetHeight;
             const playbackHeight = document.querySelector('.controls-group.controls-playback').offsetHeight;
@@ -686,15 +687,102 @@ input[type="range"] {
             }
         });
         
-        // ... (縮放和平移觸摸事件)
-        // ... (省略觸摸事件處理，與上一個版本相同)
+        // --- 縮放和平移 (保持不變) ---
+        videoDisplay.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            
+            lastTranslateX = translateX;
+            lastTranslateY = translateY;
+
+            if (e.touches.length === 2) {
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+                
+                initialDistance = Math.sqrt(
+                    Math.pow(t2.clientX - t1.clientX, 2) + 
+                    Math.pow(t2.clientY - t1.clientY, 2)
+                );
+                initialScale = currentScale; 
+                
+                startX = (t1.clientX + t2.clientX) / 2;
+                startY = (t1.clientY + t2.clientY) / 2;
+
+            } else if (e.touches.length === 1) {
+                 startX = e.touches[0].clientX;
+                 startY = e.touches[0].clientY;
+            }
+        }, { passive: false });
+
+        videoDisplay.addEventListener('touchmove', (e) => {
+            e.preventDefault(); 
+            
+            const rect = videoDisplay.getBoundingClientRect();
+            const maxPanX = (rect.width * currentScale - rect.width) / 2;
+            const maxPanY = (rect.height * currentScale - rect.height) / 2;
+
+
+            if (e.touches.length === 2) {
+                
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+
+                const currentDistance = Math.sqrt(
+                    Math.pow(t2.clientX - t1.clientX, 2) + 
+                    Math.pow(t2.clientY - t1.clientY, 2)
+                );
+                if (initialDistance > 0) {
+                    let newScale = initialScale * (currentDistance / initialDistance);
+                    currentScale = Math.min(Math.max(1, newScale), 5); 
+                }
+
+                const currentX = (t1.clientX + t2.clientX) / 2;
+                const currentY = (t1.clientY + t2.clientY) / 2;
+                
+                const deltaX = currentX - startX;
+                const deltaY = currentY - startY;
+                
+                translateX = lastTranslateX + deltaX;
+                translateY = lastTranslateY + deltaY;
+
+
+            } else if (e.touches.length === 1 && currentScale > 1) {
+                
+                const deltaX = e.touches[0].clientX - startX;
+                const deltaY = e.touches[0].clientY - startY;
+
+                translateX = lastTranslateX + deltaX;
+                translateY = lastTranslateY + deltaY;
+            }
+            
+            translateX = Math.min(Math.max(translateX, -maxPanX), maxPanX);
+            translateY = Math.min(Math.max(translateY, -maxPanY), maxPanY);
+            
+            if (currentScale <= 1.01) { 
+                 translateX = 0;
+                 translateY = 0;
+                 currentScale = 1;
+            }
+
+            applyTransform();
+
+        }, { passive: false });
+
+        videoDisplay.addEventListener('touchend', () => {
+            initialDistance = 0;
+            initialScale = currentScale;
+            lastTranslateX = translateX;
+            lastTranslateY = translateY;
+            
+            if (currentScale <= 1.01) {
+                currentScale = 1;
+                translateX = 0;
+                translateY = 0;
+                applyTransform();
+            }
+        });
+
 
     } // End of initPlayer function
-
-    // 啟動 MediaInfo 並初始化播放器
-    MediaInfo.mediaInfoFactory({ format: 'text' }, (mediainfo) => {
-        initPlayer(mediainfo);
-    });
 
 </script>
 </body>
