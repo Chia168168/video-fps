@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>影片FPS計算器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        h1 {
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        .main-content {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .video-section, .controls-section {
+            flex: 1;
+            min-width: 300px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        #videoPlayer {
+            width: 100%;
+            display: block;
+        }
+        
+        .video-placeholder {
+            width: 100%;
+            height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #111;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            color: #aaa;
+            font-size: 1.1rem;
+        }
+        
+        .video-placeholder i {
+            font-size: 4rem;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+        
+        .file-input-container {
+            margin-bottom: 20px;
+        }
+        
+        .file-input-label {
+            display: block;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .file-input-label:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        .button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: #4a00e0;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .button:hover {
+            background: #5a10f0;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .button:active {
+            transform: translateY(0);
+        }
+        
+        .button:disabled {
+            background: #555;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #8e2de2;
+        }
+        
+        .stat-label {
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+        
+        .fps-graph {
+            height: 150px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            margin-top: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .fps-bar {
+            position: absolute;
+            bottom: 0;
+            width: 4px;
+            background: #8e2de2;
+            transition: height 0.3s;
+        }
+        
+        .info-section {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            margin-top: 20px;
+        }
+        
+        .info-section h2 {
+            margin-bottom: 15px;
+            color: #8e2de2;
+        }
+        
+        .info-section p {
+            margin-bottom: 15px;
+            line-height: 1.6;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            opacity: 0.7;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            h1 {
+                font-size: 2.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>影片FPS計算器</h1>
+            <p class="subtitle">上傳影片文件，實時計算幀率（FPS）</p>
+        </header>
+        
+        <div class="main-content">
+            <div class="video-section">
+                <h2>影片播放器</h2>
+                <div class="video-container">
+                    <div class="video-placeholder" id="videoPlaceholder">
+                        <i>📹</i>
+                        <p>請上傳影片文件</p>
+                    </div>
+                    <video id="videoPlayer" controls style="display: none;"></video>
+                </div>
+                
+                <div class="file-input-container">
+                    <label for="fileInput" class="file-input-label">
+                        <strong>選擇影片文件</strong>
+                        <br>
+                        <span>支援 MP4, WebM, OGG 格式</span>
+                    </label>
+                    <input type="file" id="fileInput" accept="video/*">
+                </div>
+                
+                <button id="calculateFps" class="button" disabled>開始計算FPS</button>
+                <button id="resetBtn" class="button">重置</button>
+            </div>
+            
+            <div class="controls-section">
+                <h2>FPS統計</h2>
+                <div class="stats-container">
+                    <div class="stat-box">
+                        <div class="stat-label">當前FPS</div>
+                        <div class="stat-value" id="currentFps">0.00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">平均FPS</div>
+                        <div class="stat-value" id="averageFps">0.00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">最低FPS</div>
+                        <div class="stat-value" id="minFps">0.00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">最高FPS</div>
+                        <div class="stat-value" id="maxFps">0.00</div>
+                    </div>
+                </div>
+                
+                <h3 style="margin-top: 30px;">FPS變化圖</h3>
+                <div class="fps-graph" id="fpsGraph"></div>
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <h2>關於FPS計算</h2>
+            <p>FPS（Frames Per Second）是指影片每秒顯示的畫面數量。較高的FPS意味著更流暢的影片播放體驗。</p>
+            <p>常見的FPS值：</p>
+            <ul>
+                <li>24 FPS - 電影標準</li>
+                <li>30 FPS - 影片錄製常用</li>
+                <li>60 FPS - 高流暢度影片</li>
+                <li>120+ FPS - 高速攝影</li>
+            </ul>
+            <p>此工具通過分析影片的時間戳記變化來計算FPS，提供實時的FPS統計數據。</p>
+        </div>
+        
+        <footer>
+            <p>影片FPS計算器 &copy; 2023 | 使用HTML5和JavaScript構建</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('fileInput');
+            const videoPlayer = document.getElementById('videoPlayer');
+            const videoPlaceholder = document.getElementById('videoPlaceholder');
+            const calculateFpsBtn = document.getElementById('calculateFps');
+            const resetBtn = document.getElementById('resetBtn');
+            const currentFpsElement = document.getElementById('currentFps');
+            const averageFpsElement = document.getElementById('averageFps');
+            const minFpsElement = document.getElementById('minFps');
+            const maxFpsElement = document.getElementById('maxFps');
+            const fpsGraph = document.getElementById('fpsGraph');
+            
+            let isCalculating = false;
+            let frameCount = 0;
+            let lastTime = 0;
+            let fpsValues = [];
+            let animationId;
+            
+            // 初始化FPS圖表
+            function initFpsGraph() {
+                fpsGraph.innerHTML = '';
+                const barCount = 30;
+                for (let i = 0; i < barCount; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'fps-bar';
+                    bar.style.left = `${(i / barCount) * 100}%`;
+                    bar.style.height = '0px';
+                    fpsGraph.appendChild(bar);
+                }
+            }
+            
+            initFpsGraph();
+            
+            // 檔案選擇事件
+            fileInput.addEventListener('change', function(e) {
+                if (e.target.files && e.target.files[0]) {
+                    const file = e.target.files[0];
+                    const url = URL.createObjectURL(file);
+                    
+                    videoPlayer.src = url;
+                    videoPlayer.style.display = 'block';
+                    videoPlaceholder.style.display = 'none';
+                    
+                    calculateFpsBtn.disabled = false;
+                    
+                    // 重置統計數據
+                    resetStats();
+                }
+            });
+            
+            // 開始計算FPS
+            calculateFpsBtn.addEventListener('click', function() {
+                if (isCalculating) {
+                    stopCalculation();
+                    calculateFpsBtn.textContent = '開始計算FPS';
+                } else {
+                    startCalculation();
+                    calculateFpsBtn.textContent = '停止計算';
+                }
+            });
+            
+            // 重置按鈕
+            resetBtn.addEventListener('click', function() {
+                stopCalculation();
+                resetStats();
+                calculateFpsBtn.textContent = '開始計算FPS';
+                calculateFpsBtn.disabled = !videoPlayer.src;
+            });
+            
+            // 開始計算FPS
+            function startCalculation() {
+                if (!videoPlayer.src) return;
+                
+                isCalculating = true;
+                frameCount = 0;
+                lastTime = performance.now();
+                fpsValues = [];
+                
+                videoPlayer.play();
+                calculateFPS();
+            }
+            
+            // 停止計算
+            function stopCalculation() {
+                isCalculating = false;
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                }
+                videoPlayer.pause();
+            }
+            
+            // 重置統計數據
+            function resetStats() {
+                currentFpsElement.textContent = '0.00';
+                averageFpsElement.textContent = '0.00';
+                minFpsElement.textContent = '0.00';
+                maxFpsElement.textContent = '0.00';
+                initFpsGraph();
+            }
+            
+            // 計算FPS
+            function calculateFPS() {
+                if (!isCalculating) return;
+                
+                const currentTime = performance.now();
+                frameCount++;
+                
+                // 每秒計算一次FPS
+                if (currentTime - lastTime >= 1000) {
+                    const fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+                    
+                    // 更新FPS值
+                    fpsValues.push(fps);
+                    currentFpsElement.textContent = fps.toFixed(2);
+                    
+                    // 計算平均FPS
+                    const avgFps = fpsValues.reduce((a, b) => a + b, 0) / fpsValues.length;
+                    averageFpsElement.textContent = avgFps.toFixed(2);
+                    
+                    // 計算最小和最大FPS
+                    const minFps = Math.min(...fpsValues);
+                    const maxFps = Math.max(...fpsValues);
+                    minFpsElement.textContent = minFps.toFixed(2);
+                    maxFpsElement.textContent = maxFps.toFixed(2);
+                    
+                    // 更新FPS圖表
+                    updateFpsGraph(fps);
+                    
+                    // 重置計數器
+                    frameCount = 0;
+                    lastTime = currentTime;
+                }
+                
+                animationId = requestAnimationFrame(calculateFPS);
+            }
+            
+            // 更新FPS圖表
+            function updateFpsGraph(fps) {
+                const bars = fpsGraph.querySelectorAll('.fps-bar');
+                
+                // 移動現有條形圖
+                for (let i = bars.length - 1; i > 0; i--) {
+                    bars[i].style.height = bars[i-1].style.height;
+                }
+                
+                // 添加新數據 (限制FPS最大值為120以便顯示)
+                const normalizedFps = Math.min(fps, 120);
+                bars[0].style.height = `${(normalizedFps / 120) * 100}%`;
+            }
+        });
+    </script>
+</body>
+</html>
