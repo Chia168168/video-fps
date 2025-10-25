@@ -2,94 +2,142 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>選擇影片並計算 FPS</title>
+    <title>選擇影片並獲取原始 FPS</title>
+    <!-- 載入 MediaInfo.js (從 CDN 或本地) -->
+    <script src="https://unpkg.com/@mediainfo/mediainfo.js@0.17.0/dist/MediaInfoModule.js"></script>
+    <!-- 注意：需額外載入 WASM 檔案，見下方說明 -->
 </head>
 <body>
-    <h2>選擇影片檔案並計算 FPS</h2>
+    <h2>選擇影片檔案並獲取原始 FPS</h2>
     <input type="file" id="videoInput" accept="video/*">
     <br><br>
     <video id="videoPreview" width="640" height="360" controls style="display: none;">
         您的瀏覽器不支援 video 標籤。
     </video>
-    <p>當前 FPS: <span id="fps">0</span></p>
+    <p>原始 FPS: <span id="originalFps">0</span></p>
+    <p>渲染 FPS: <span id="renderFps">0</span></p>
 
     <script>
         const videoInput = document.getElementById('videoInput');
         const videoPreview = document.getElementById('videoPreview');
-        const fpsDisplay = document.getElementById('fps');
+        const originalFpsDisplay = document.getElementById('originalFps');
+        const renderFpsDisplay = document.getElementById('renderFps');
         
+        let mediaInfo = null;
         let frameCount = 0;
         let startTime = null;
         let animationId = null;
 
+        // 初始化 MediaInfo.js
+        async function initMediaInfo() {
+            try {
+                mediaInfo = await MediaInfo({ locateFile: () => 'https://unpkg.com/@mediainfo/mediainfo.js@0.17.0/dist/MediaInfo.wasm' });
+                console.log('MediaInfo.js 已載入');
+            } catch (error) {
+                console.error('載入 MediaInfo.js 失敗:', error);
+                originalFpsDisplay.textContent = '解析失敗 (需 WASM 支援)';
+            }
+        }
+        initMediaInfo();
+
         // 選擇檔案事件
-        videoInput.addEventListener('change', function(event) {
+        videoInput.addEventListener('change', async function(event) {
             const file = event.target.files[0];
             if (file && file.type.startsWith('video/')) {
+                // 解析原始 FPS
+                await parseOriginalFps(file);
+                
+                // 載入預覽
                 const url = URL.createObjectURL(file);
                 videoPreview.src = url;
                 videoPreview.style.display = 'block';
                 videoPreview.load();
                 
-                // 等待載入完成後自動播放並開始計算 FPS
+                // 等待載入後自動播放並計算渲染 FPS
                 videoPreview.addEventListener('loadedmetadata', () => {
                     videoPreview.play();
-                });
+                }, { once: true });
             } else {
                 alert('請選擇有效的影片檔案！');
             }
         });
 
-        // 開始計算 FPS（使用 requestAnimationFrame）
-        function startFPSCalculation() {
+        // 解析原始 FPS
+        async function parseOriginalFps(file) {
+            if (!mediaInfo) {
+                originalFpsDisplay.textContent = 'MediaInfo 未載入';
+                return;
+            }
+            
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const info = await mediaInfo.analyzeData(arrayBuffer);
+                const json = await mediaInfo.getAsJson(info);
+                
+                // 解析 JSON 找出 FPS (在 Video 軌道中)
+                const parsed = JSON.parse(json);
+                let fps = 0;
+                if (parsed.media && parsed.media.track) {
+                    for (const track of parsed.media.track) {
+                        if (track.type === 'Video' && track.FrameRate) {
+                            fps = track.FrameRate;
+                            break;
+                        }
+                    }
+                }
+                
+                if (fps > 0) {
+                    originalFpsDisplay.textContent = Math.round(fps);
+                } else {
+                    originalFpsDisplay.textContent = '無法解析 FPS';
+                }
+            } catch (error) {
+                console.error('解析 FPS 失敗:', error);
+                originalFpsDisplay.textContent = '解析錯誤';
+            }
+        }
+
+        // 渲染 FPS 計算 (fallback 或額外顯示)
+        function startRenderFpsCalculation() {
             frameCount = 0;
             startTime = performance.now();
 
-            function calculateFPS(timestamp) {
+            function calculateFps(timestamp) {
                 if (!startTime) startTime = timestamp;
                 
                 frameCount++;
-                const elapsedTime = (timestamp - startTime) / 1000; // 轉為秒
+                const elapsedTime = (timestamp - startTime) / 1000;
 
-                if (elapsedTime >= 1) { // 每秒更新一次 FPS
+                if (elapsedTime >= 1) {
                     const fps = Math.round(frameCount / elapsedTime);
-                    fpsDisplay.textContent = fps;
-                    // 重置計數
+                    renderFpsDisplay.textContent = fps;
                     frameCount = 0;
                     startTime = timestamp;
                 }
 
                 if (!videoPreview.paused && !videoPreview.ended) {
-                    animationId = requestAnimationFrame(calculateFPS);
+                    animationId = requestAnimationFrame(calculateFps);
                 }
             }
 
-            animationId = requestAnimationFrame(calculateFPS);
+            animationId = requestAnimationFrame(calculateFps);
         }
 
-        // 影片開始播放時啟動 FPS 計算
-        videoPreview.addEventListener('play', startFPSCalculation);
+        videoPreview.addEventListener('play', startRenderFpsCalculation);
 
-        // 暫停或結束時停止計算並清理
         videoPreview.addEventListener('pause', () => {
-            fpsDisplay.textContent = '0';
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-            }
+            renderFpsDisplay.textContent = '0';
+            if (animationId) cancelAnimationFrame(animationId);
         });
 
         videoPreview.addEventListener('ended', () => {
-            fpsDisplay.textContent = '0';
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-            }
+            renderFpsDisplay.textContent = '0';
+            if (animationId) cancelAnimationFrame(animationId);
         });
 
-        // 清理資源
-        videoPreview.addEventListener('loadeddata', () => {
-            if (videoPreview.src) {
-                URL.revokeObjectURL(videoPreview.src);
-            }
+        // 清理 URL
+        window.addEventListener('beforeunload', () => {
+            if (videoPreview.src) URL.revokeObjectURL(videoPreview.src);
         });
     </script>
 </body>
