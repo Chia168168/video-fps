@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>選擇影片並獲取原始 FPS</title>
-    <!-- 載入 MediaInfo.js，設為 module -->
+    <!-- 載入 MediaInfo.js，設為 module，優先本地檔案，失敗則回退到 CDN -->
     <script type="module" src="/video-fps/js/MediaInfoModule.js" onerror="this.src='https://cdn.jsdelivr.net/npm/mediainfo.js@0.2.1/dist/MediaInfoModule.min.js'"></script>
 </head>
 <body>
