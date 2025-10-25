@@ -1,132 +1,269 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
+<!doctype html>
+<html lang="zh-Hant">
 <head>
-    <meta charset="UTF-8">
-    <title>選擇影片並獲取原始 FPS</title>
-    <!-- 載入 MediaInfo.js，設為 module，優先本地檔案，失敗則回退到 CDN -->
-    <script type="module" src="/video-fps/js/MediaInfoModule.js" onerror="this.src='https://cdn.jsdelivr.net/npm/mediainfo.js@0.2.1/dist/MediaInfoModule.min.js'"></script>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>影片實際 FPS 測量器</title>
+<style>
+  body { font-family: "Noto Sans TC", system-ui, sans-serif; margin: 20px; background:#f6f7fb; color:#222; }
+  .panel { background:#fff; border-radius:10px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,0.06); max-width:900px; margin:auto; }
+  h1 { margin:0 0 10px 0; font-size:20px; }
+  .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .stats { display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .stat { background:#f2f4f8; padding:8px 12px; border-radius:8px; min-width:150px; }
+  video { max-width:100%; border-radius:8px; display:block; margin-top:12px; background:#000; }
+  canvas { display:none; }
+  .note { font-size:13px; color:#555; margin-top:8px; }
+  .btn { padding:8px 12px; border-radius:6px; background:#0b74de; color:white; border:none; cursor:pointer; }
+  .btn:disabled { opacity:0.5; cursor:default; }
+  label.file { border:1px dashed #c7d6ee; padding:8px 12px; border-radius:8px; cursor:pointer; display:inline-block; }
+  .small { font-size:13px; color:#666; }
+</style>
 </head>
 <body>
-    <h2>選擇影片檔案並獲取原始 FPS</h2>
-    <input type="file" id="videoInput" accept="video/*">
-    <br><br>
-    <video id="videoPreview" width="640" height="360" controls style="display: none;">
-        您的瀏覽器不支援 video 標籤。
-    </video>
-    <p>原始 FPS: <span id="originalFps">0</span></p>
-    <p>錯誤訊息: <span id="errorMsg">無</span></p>
+  <div class="panel">
+    <h1>影片實際 FPS 測量器</h1>
+    <div class="controls">
+      <label class="file">
+        選擇影片檔
+        <input id="fileInput" type="file" accept="video/*" style="display:none" />
+      </label>
+      <button id="playBtn" class="btn" disabled>播放</button>
+      <button id="stopBtn" class="btn" disabled>停止</button>
+      <div class="small">測量方式：<span id="modeLabel">-</span></div>
+    </div>
 
-    <script type="module">
-        // 嘗試導入 Module 或 MediaInfoFactory，根據檔案內容調整
-        let MediaInfoFactory;
+    <div class="stats">
+      <div class="stat">瞬時 FPS：<strong id="instFps">-</strong></div>
+      <div class="stat">平均 FPS（30 幀）：<strong id="avgFps">-</strong></div>
+      <div class="stat">檢測幀數：<strong id="frameCount">0</strong></div>
+      <div class="stat">影片解析度：<strong id="resolution">-</strong></div>
+      <div class="stat">長度（秒）：<strong id="duration">-</strong></div>
+      <div class="stat">播放狀態：<strong id="status">停止</strong></div>
+    </div>
+
+    <video id="video" controls playsinline crossorigin="anonymous"></video>
+    <canvas id="probeCanvas"></canvas>
+
+    <p class="note">
+      備註：現代瀏覽器會優先使用 <code>requestVideoFrameCallback</code>（更精準）。若瀏覽器不支援，程式會以 canvas 取樣像素差異作為備援方法。<br>
+      若測到 fps 非常低或不穩定，請確認影片播放速度（慢動作/加速）或瀏覽器是否限制編碼硬體加速。
+    </p>
+  </div>
+
+<script>
+(() => {
+  const fileInput = document.getElementById('fileInput');
+  const video = document.getElementById('video');
+  const playBtn = document.getElementById('playBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const instFpsEl = document.getElementById('instFps');
+  const avgFpsEl = document.getElementById('avgFps');
+  const frameCountEl = document.getElementById('frameCount');
+  const resolutionEl = document.getElementById('resolution');
+  const durationEl = document.getElementById('duration');
+  const statusEl = document.getElementById('status');
+  const modeLabel = document.getElementById('modeLabel');
+  const canvas = document.getElementById('probeCanvas');
+  const ctx = canvas.getContext('2d');
+
+  let useRVFC = typeof HTMLVideoElement !== 'undefined' && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+  // state
+  let measuring = false;
+  let lastTimestamp = null; // ms
+  let frameCount = 0;
+  let fpsSamples = [];
+  const sampleWindow = 30; // rolling average over this many frames
+  let rvfcHandle = null;
+  let canvasLoopId = null;
+  let lastImageData = null;
+  let lastCanvasTimestamp = null;
+
+  // helper
+  function updateStats(instFps, avgFps) {
+    instFpsEl.textContent = instFps ? instFps.toFixed(2) : '-';
+    avgFpsEl.textContent = avgFps ? avgFps.toFixed(2) : '-';
+    frameCountEl.textContent = String(frameCount);
+  }
+
+  function startMeasuring() {
+    frameCount = 0;
+    fpsSamples = [];
+    lastTimestamp = null;
+    lastImageData = null;
+    lastCanvasTimestamp = null;
+    updateStats(null, null);
+    measuring = true;
+    statusEl.textContent = '播放並測量中';
+    modeLabel.textContent = useRVFC ? 'requestVideoFrameCallback (精準)' : 'Canvas pixel-diff (備援)';
+    if (useRVFC) {
+      // ensure any previous handle is cleared
+      const rvfcLoop = (now, metadata) => {
+        if (!measuring) return;
+        // now is a DOMHighResTimeStamp in ms
+        if (lastTimestamp != null) {
+          const deltaMs = now - lastTimestamp;
+          if (deltaMs > 0) {
+            const instFps = 1000 / deltaMs;
+            fpsSamples.push(instFps);
+            if (fpsSamples.length > sampleWindow) fpsSamples.shift();
+            const avgFps = fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length;
+            frameCount++;
+            updateStats(instFps, avgFps);
+          }
+        }
+        lastTimestamp = now;
+        // schedule next frame callback
+        video.requestVideoFrameCallback(rvfcLoop);
+      };
+      // start
+      video.requestVideoFrameCallback(rvfcLoop);
+    } else {
+      // canvas approach: draw at requestAnimationFrame and detect pixel changes
+      // downscale for speed
+      const probeW = 160;
+      let probeH = Math.round(probeW * (video.videoHeight / Math.max(1, video.videoWidth)));
+      if (!isFinite(probeH) || probeH <= 0) probeH = 90;
+      canvas.width = probeW;
+      canvas.height = probeH;
+      canvas.style.display = 'none';
+
+      const loop = (ts) => {
+        if (!measuring) return;
+        // draw current video frame to canvas
         try {
-            MediaInfoFactory = await import('/video-fps/js/MediaInfoModule.js').then(module => module.default || module.Module);
-        } catch (error) {
-            console.error('模組導入失敗:', error);
-            MediaInfoFactory = null;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        } catch (e) {
+          // sometimes drawing may fail if video not ready
+        }
+        // get small image data (RGBA)
+        let img = ctx.getImageData(0,0,canvas.width, canvas.height);
+        let changed = false;
+        if (lastImageData) {
+          // compute simple sum of absolute differences over a sample of pixels
+          let diffSum = 0;
+          const step = 4 * 4; // sample every 4th pixel (RGBA => *4)
+          const data = img.data;
+          const last = lastImageData.data;
+          // sample to reduce CPU
+          for (let i = 0; i < data.length; i += step) {
+            diffSum += Math.abs(data[i] - last[i]);
+            // cheap check: if diffSum already large enough, break
+            if (diffSum > 3000) { break; }
+          }
+          // threshold - tuned for downscaled image
+          if (diffSum > 300) changed = true;
+        } else {
+          // first frame considered as changed
+          changed = true;
         }
 
-        const videoInput = document.getElementById('videoInput');
-        const videoPreview = document.getElementById('videoPreview');
-        const originalFpsDisplay = document.getElementById('originalFps');
-        const errorMsgDisplay = document.getElementById('errorMsg');
-        
-        let mediaInfo = null;
-
-        // 初始化 MediaInfo.js
-        async function initMediaInfo() {
-            if (!MediaInfoFactory) {
-                errorMsgDisplay.textContent = 'MediaInfo.js 載入失敗 (請檢查控制台)';
-                originalFpsDisplay.textContent = '無法解析';
-                return;
+        const now = performance.now();
+        if (changed) {
+          if (lastCanvasTimestamp != null) {
+            const delta = (now - lastCanvasTimestamp) / 1000; // sec
+            if (delta > 0) {
+              const instFps = 1 / delta;
+              fpsSamples.push(instFps);
+              if (fpsSamples.length > sampleWindow) fpsSamples.shift();
+              const avgFps = fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length;
+              frameCount++;
+              updateStats(instFps, avgFps);
             }
-            try {
-                mediaInfo = await MediaInfoFactory({
-                    locateFile: () => '/video-fps/wasm/MediaInfoModule.wasm'
-                });
-                console.log('MediaInfo.js 已成功載入');
-                errorMsgDisplay.textContent = 'MediaInfo.js 載入成功';
-            } catch (error) {
-                console.error('載入 MediaInfo.js 失敗:', error);
-                errorMsgDisplay.textContent = 'MediaInfo.js 載入失敗 (請檢查檔案路徑或網路)';
-                originalFpsDisplay.textContent = '無法解析';
-            }
+          }
+          lastCanvasTimestamp = now;
         }
-        initMediaInfo();
+        lastImageData = img;
+        canvasLoopId = requestAnimationFrame(loop);
+      };
+      canvasLoopId = requestAnimationFrame(loop);
+    }
+  }
 
-        // 選擇檔案事件
-        videoInput.addEventListener('change', async function(event) {
-            const file = event.target.files[0];
-            if (file && file.type.startsWith('video/')) {
-                // 限制檔案大小（100MB）
-                if (file.size > 100 * 1024 * 1024) {
-                    errorMsgDisplay.textContent = '檔案過大，請選擇小於 100MB 的影片';
-                    return;
-                }
+  function stopMeasuring() {
+    measuring = false;
+    if (canvasLoopId) {
+      cancelAnimationFrame(canvasLoopId);
+      canvasLoopId = null;
+    }
+    // There's no cancel for requestVideoFrameCallback, but we stop scheduling by measuring=false
+    statusEl.textContent = '停止';
+    modeLabel.textContent = '-';
+  }
 
-                // 重置顯示
-                originalFpsDisplay.textContent = '解析中...';
-                errorMsgDisplay.textContent = '無';
-                
-                // 解析原始 FPS
-                await parseOriginalFps(file);
-                
-                // 載入影片預覽
-                const url = URL.createObjectURL(file);
-                videoPreview.src = url;
-                videoPreview.style.display = 'block';
-                videoPreview.load();
-                
-                videoPreview.addEventListener('loadedmetadata', () => {
-                    videoPreview.play().catch(err => {
-                        console.error('自動播放失敗:', err);
-                        errorMsgDisplay.textContent = '自動播放失敗 (請手動播放)';
-                    });
-                }, { once: true });
-            } else {
-                alert('請選擇有效的影片檔案！');
-                errorMsgDisplay.textContent = '無效的檔案類型';
-            }
-        });
+  fileInput.addEventListener('change', (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    // create object URL
+    const url = URL.createObjectURL(f);
+    video.src = url;
+    video.load();
+    playBtn.disabled = false;
+    stopBtn.disabled = false;
+    // reset displays
+    instFpsEl.textContent = '-';
+    avgFpsEl.textContent = '-';
+    frameCountEl.textContent = '0';
+    resolutionEl.textContent = '-';
+    durationEl.textContent = '-';
+  });
 
-        // 解析原始 FPS
-        async function parseOriginalFps(file) {
-            if (!mediaInfo) {
-                originalFpsDisplay.textContent = 'MediaInfo 未初始化';
-                errorMsgDisplay.textContent = 'MediaInfo 未初始化，請檢查控制台';
-                return;
-            }
-            
-            try {
-                const arrayBuffer = await file.arrayBuffer();
-                const info = await mediaInfo.analyzeData(file.size, () => arrayBuffer);
-                const json = JSON.parse(info);
-                
-                let fps = 0;
-                if (json.media && json.media.track) {
-                    for (const track of json.media.track) {
-                        if (track['@type'] === 'Video' && track.FrameRate) {
-                            fps = parseFloat(track.FrameRate);
-                            break;
-                        }
-                    }
-                }
-                
-                originalFpsDisplay.textContent = fps > 0 ? Math.round(fps) : '無法解析 FPS';
-                if (fps === 0) {
-                    errorMsgDisplay.textContent = '未找到影片軌道或 FPS 資訊';
-                }
-            } catch (error) {
-                console.error('解析 FPS 失敗:', error);
-                originalFpsDisplay.textContent = '解析錯誤';
-                errorMsgDisplay.textContent = `解析錯誤: ${error.message}`;
-            }
-        }
+  playBtn.addEventListener('click', async () => {
+    if (!video.src) return;
+    try {
+      await video.play();
+    } catch (e) {
+      console.warn('播放失敗', e);
+    }
+  });
 
-        // 清理資源
-        window.addEventListener('beforeunload', () => {
-            if (videoPreview.src) URL.revokeObjectURL(videoPreview.src);
-        });
-    </script>
+  stopBtn.addEventListener('click', () => {
+    video.pause();
+    video.currentTime = 0;
+    stopMeasuring();
+  });
+
+  // update resolution/duration after metadata loaded
+  video.addEventListener('loadedmetadata', () => {
+    resolutionEl.textContent = `${video.videoWidth} × ${video.videoHeight}`;
+    durationEl.textContent = (isFinite(video.duration) ? video.duration.toFixed(2) : '-') ;
+  });
+
+  // when playback starts -> start measuring
+  video.addEventListener('playing', () => {
+    // choose mode again dynamically (in case environment changed)
+    useRVFC = typeof HTMLVideoElement !== 'undefined' && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+    startMeasuring();
+  });
+
+  // on pause or ended, stop measuring
+  function onPauseOrEnded() { stopMeasuring(); }
+  video.addEventListener('pause', onPauseOrEnded);
+  video.addEventListener('ended', onPauseOrEnded);
+
+  // cleanup object URL when file replaced/unloaded
+  window.addEventListener('beforeunload', () => {
+    try { URL.revokeObjectURL(video.src); } catch(e){}
+  });
+
+  // keyboard drag-and-drop support (optional UX)
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f && f.type.startsWith('video/')) {
+      // set file input programmatically
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      fileInput.files = dt.files;
+      const evt = new Event('change');
+      fileInput.dispatchEvent(evt);
+    }
+  });
+
+  // initial label
+  modeLabel.textContent = useRVFC ? 'requestVideoFrameCallback（支援）' : '不支援，將使用 Canvas 備援';
+})();
+</script>
 </body>
 </html>
