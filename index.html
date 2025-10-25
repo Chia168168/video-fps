@@ -2,267 +2,147 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>影片實際 FPS 測量器</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>影片 FPS 測量器（原始 vs 實際）</title>
 <style>
-  body { font-family: "Noto Sans TC", system-ui, sans-serif; margin: 20px; background:#f6f7fb; color:#222; }
-  .panel { background:#fff; border-radius:10px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,0.06); max-width:900px; margin:auto; }
-  h1 { margin:0 0 10px 0; font-size:20px; }
-  .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
-  .stats { display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; }
-  .stat { background:#f2f4f8; padding:8px 12px; border-radius:8px; min-width:150px; }
-  video { max-width:100%; border-radius:8px; display:block; margin-top:12px; background:#000; }
-  canvas { display:none; }
-  .note { font-size:13px; color:#555; margin-top:8px; }
-  .btn { padding:8px 12px; border-radius:6px; background:#0b74de; color:white; border:none; cursor:pointer; }
-  .btn:disabled { opacity:0.5; cursor:default; }
-  label.file { border:1px dashed #c7d6ee; padding:8px 12px; border-radius:8px; cursor:pointer; display:inline-block; }
-  .small { font-size:13px; color:#666; }
+body{font-family:"Noto Sans TC",system-ui,sans-serif;background:#f5f6fa;color:#222;margin:20px;}
+.panel{background:#fff;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.06);padding:20px;max-width:900px;margin:auto;}
+h1{font-size:22px;margin-top:0;}
+video{max-width:100%;border-radius:8px;background:#000;margin-top:10px;}
+.stats{display:flex;flex-wrap:wrap;gap:12px;margin-top:15px;}
+.stat{background:#f2f4f8;border-radius:8px;padding:8px 12px;min-width:180px;}
+.note{font-size:13px;color:#555;margin-top:10px;line-height:1.5;}
+.btn{background:#0b74de;color:white;border:none;border-radius:6px;padding:8px 12px;cursor:pointer;}
+label.file{border:1px dashed #c7d6ee;padding:8px 12px;border-radius:8px;cursor:pointer;display:inline-block;}
+.alert{background:#fff3cd;color:#856404;padding:10px 12px;border-radius:8px;margin-top:10px;display:none;}
+.small{font-size:13px;color:#666;}
 </style>
 </head>
 <body>
-  <div class="panel">
-    <h1>影片實際 FPS 測量器</h1>
-    <div class="controls">
-      <label class="file">
-        選擇影片檔
-        <input id="fileInput" type="file" accept="video/*" style="display:none" />
-      </label>
-      <button id="playBtn" class="btn" disabled>播放</button>
-      <button id="stopBtn" class="btn" disabled>停止</button>
-      <div class="small">測量方式：<span id="modeLabel">-</span></div>
-    </div>
-
-    <div class="stats">
-      <div class="stat">瞬時 FPS：<strong id="instFps">-</strong></div>
-      <div class="stat">平均 FPS（30 幀）：<strong id="avgFps">-</strong></div>
-      <div class="stat">檢測幀數：<strong id="frameCount">0</strong></div>
-      <div class="stat">影片解析度：<strong id="resolution">-</strong></div>
-      <div class="stat">長度（秒）：<strong id="duration">-</strong></div>
-      <div class="stat">播放狀態：<strong id="status">停止</strong></div>
-    </div>
-
-    <video id="video" controls playsinline crossorigin="anonymous"></video>
-    <canvas id="probeCanvas"></canvas>
-
-    <p class="note">
-      備註：現代瀏覽器會優先使用 <code>requestVideoFrameCallback</code>（更精準）。若瀏覽器不支援，程式會以 canvas 取樣像素差異作為備援方法。<br>
-      若測到 fps 非常低或不穩定，請確認影片播放速度（慢動作/加速）或瀏覽器是否限制編碼硬體加速。
-    </p>
+<div class="panel">
+  <h1>影片 FPS 測量器</h1>
+  <div class="controls">
+    <label class="file">選擇影片
+      <input id="fileInput" type="file" accept="video/*" style="display:none">
+    </label>
+    <button id="playBtn" class="btn" disabled>播放測量</button>
+    <button id="stopBtn" class="btn" disabled>停止</button>
+    <span class="small">測量方式：<span id="modeLabel">-</span></span>
   </div>
 
+  <div class="alert" id="fpsAlert"></div>
+
+  <div class="stats">
+    <div class="stat">🎬 原始 FPS：<strong id="metaFps">-</strong></div>
+    <div class="stat">🎥 實際播放 FPS：<strong id="realFps">-</strong></div>
+    <div class="stat">平均 FPS：<strong id="avgFps">-</strong></div>
+    <div class="stat">幀數：<strong id="frames">0</strong></div>
+    <div class="stat">解析度：<strong id="resolution">-</strong></div>
+    <div class="stat">長度（秒）：<strong id="duration">-</strong></div>
+  </div>
+
+  <video id="video" controls playsinline></video>
+  <p class="note">
+    📱 如果你用 iPhone 錄的 120fps 影片，在 Safari 測出 30fps 是正常的，
+    因為系統會自動降幀顯示以節能與穩定播放。
+  </p>
+</div>
+
+<!-- 載入 mediainfo.js（用官方 CDN） -->
+<script src="https://cdn.jsdelivr.net/npm/mediainfo.js/dist/mediainfo.min.js"></script>
+
 <script>
-(() => {
+(async () => {
   const fileInput = document.getElementById('fileInput');
   const video = document.getElementById('video');
   const playBtn = document.getElementById('playBtn');
   const stopBtn = document.getElementById('stopBtn');
-  const instFpsEl = document.getElementById('instFps');
-  const avgFpsEl = document.getElementById('avgFps');
-  const frameCountEl = document.getElementById('frameCount');
-  const resolutionEl = document.getElementById('resolution');
-  const durationEl = document.getElementById('duration');
-  const statusEl = document.getElementById('status');
+  const metaFps = document.getElementById('metaFps');
+  const realFps = document.getElementById('realFps');
+  const avgFps = document.getElementById('avgFps');
+  const frames = document.getElementById('frames');
+  const resolution = document.getElementById('resolution');
+  const duration = document.getElementById('duration');
   const modeLabel = document.getElementById('modeLabel');
-  const canvas = document.getElementById('probeCanvas');
-  const ctx = canvas.getContext('2d');
+  const fpsAlert = document.getElementById('fpsAlert');
 
-  let useRVFC = typeof HTMLVideoElement !== 'undefined' && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
-  // state
-  let measuring = false;
-  let lastTimestamp = null; // ms
-  let frameCount = 0;
+  let mediainfo = await MediaInfo({ format: 'object' });
+  let lastTime = null;
   let fpsSamples = [];
-  const sampleWindow = 30; // rolling average over this many frames
-  let rvfcHandle = null;
-  let canvasLoopId = null;
-  let lastImageData = null;
-  let lastCanvasTimestamp = null;
+  let frameCount = 0;
+  let measuring = false;
 
-  // helper
-  function updateStats(instFps, avgFps) {
-    instFpsEl.textContent = instFps ? instFps.toFixed(2) : '-';
-    avgFpsEl.textContent = avgFps ? avgFps.toFixed(2) : '-';
-    frameCountEl.textContent = String(frameCount);
+  function avg(arr) {
+    if (!arr.length) return 0;
+    return arr.reduce((a,b)=>a+b,0)/arr.length;
   }
 
-  function startMeasuring() {
-    frameCount = 0;
-    fpsSamples = [];
-    lastTimestamp = null;
-    lastImageData = null;
-    lastCanvasTimestamp = null;
-    updateStats(null, null);
-    measuring = true;
-    statusEl.textContent = '播放並測量中';
-    modeLabel.textContent = useRVFC ? 'requestVideoFrameCallback (精準)' : 'Canvas pixel-diff (備援)';
-    if (useRVFC) {
-      // ensure any previous handle is cleared
-      const rvfcLoop = (now, metadata) => {
-        if (!measuring) return;
-        // now is a DOMHighResTimeStamp in ms
-        if (lastTimestamp != null) {
-          const deltaMs = now - lastTimestamp;
-          if (deltaMs > 0) {
-            const instFps = 1000 / deltaMs;
-            fpsSamples.push(instFps);
-            if (fpsSamples.length > sampleWindow) fpsSamples.shift();
-            const avgFps = fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length;
-            frameCount++;
-            updateStats(instFps, avgFps);
-          }
-        }
-        lastTimestamp = now;
-        // schedule next frame callback
-        video.requestVideoFrameCallback(rvfcLoop);
-      };
-      // start
-      video.requestVideoFrameCallback(rvfcLoop);
-    } else {
-      // canvas approach: draw at requestAnimationFrame and detect pixel changes
-      // downscale for speed
-      const probeW = 160;
-      let probeH = Math.round(probeW * (video.videoHeight / Math.max(1, video.videoWidth)));
-      if (!isFinite(probeH) || probeH <= 0) probeH = 90;
-      canvas.width = probeW;
-      canvas.height = probeH;
-      canvas.style.display = 'none';
-
-      const loop = (ts) => {
-        if (!measuring) return;
-        // draw current video frame to canvas
-        try {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        } catch (e) {
-          // sometimes drawing may fail if video not ready
-        }
-        // get small image data (RGBA)
-        let img = ctx.getImageData(0,0,canvas.width, canvas.height);
-        let changed = false;
-        if (lastImageData) {
-          // compute simple sum of absolute differences over a sample of pixels
-          let diffSum = 0;
-          const step = 4 * 4; // sample every 4th pixel (RGBA => *4)
-          const data = img.data;
-          const last = lastImageData.data;
-          // sample to reduce CPU
-          for (let i = 0; i < data.length; i += step) {
-            diffSum += Math.abs(data[i] - last[i]);
-            // cheap check: if diffSum already large enough, break
-            if (diffSum > 3000) { break; }
-          }
-          // threshold - tuned for downscaled image
-          if (diffSum > 300) changed = true;
-        } else {
-          // first frame considered as changed
-          changed = true;
-        }
-
-        const now = performance.now();
-        if (changed) {
-          if (lastCanvasTimestamp != null) {
-            const delta = (now - lastCanvasTimestamp) / 1000; // sec
-            if (delta > 0) {
-              const instFps = 1 / delta;
-              fpsSamples.push(instFps);
-              if (fpsSamples.length > sampleWindow) fpsSamples.shift();
-              const avgFps = fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length;
-              frameCount++;
-              updateStats(instFps, avgFps);
-            }
-          }
-          lastCanvasTimestamp = now;
-        }
-        lastImageData = img;
-        canvasLoopId = requestAnimationFrame(loop);
-      };
-      canvasLoopId = requestAnimationFrame(loop);
-    }
+  async function getMetaData(file) {
+    const result = await mediainfo.analyzeData(() => file.size, chunkSize => file.slice(0, chunkSize));
+    const videoTrack = result.media?.track?.find(t => t['@type'] === 'Video');
+    return videoTrack || {};
   }
 
-  function stopMeasuring() {
-    measuring = false;
-    if (canvasLoopId) {
-      cancelAnimationFrame(canvasLoopId);
-      canvasLoopId = null;
-    }
-    // There's no cancel for requestVideoFrameCallback, but we stop scheduling by measuring=false
-    statusEl.textContent = '停止';
-    modeLabel.textContent = '-';
-  }
-
-  fileInput.addEventListener('change', (ev) => {
-    const f = ev.target.files && ev.target.files[0];
-    if (!f) return;
-    // create object URL
-    const url = URL.createObjectURL(f);
+  fileInput.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const meta = await getMetaData(file);
+    metaFps.textContent = meta.FrameRate || '未知';
+    resolution.textContent = meta.Width && meta.Height ? `${meta.Width}×${meta.Height}` : '-';
+    duration.textContent = meta.Duration ? (parseFloat(meta.Duration)/1000).toFixed(2) : '-';
+    const url = URL.createObjectURL(file);
     video.src = url;
-    video.load();
     playBtn.disabled = false;
     stopBtn.disabled = false;
-    // reset displays
-    instFpsEl.textContent = '-';
-    avgFpsEl.textContent = '-';
-    frameCountEl.textContent = '0';
-    resolutionEl.textContent = '-';
-    durationEl.textContent = '-';
   });
 
   playBtn.addEventListener('click', async () => {
-    if (!video.src) return;
-    try {
-      await video.play();
-    } catch (e) {
-      console.warn('播放失敗', e);
-    }
+    await video.play();
   });
 
   stopBtn.addEventListener('click', () => {
     video.pause();
     video.currentTime = 0;
-    stopMeasuring();
+    measuring = false;
   });
 
-  // update resolution/duration after metadata loaded
-  video.addEventListener('loadedmetadata', () => {
-    resolutionEl.textContent = `${video.videoWidth} × ${video.videoHeight}`;
-    durationEl.textContent = (isFinite(video.duration) ? video.duration.toFixed(2) : '-') ;
-  });
-
-  // when playback starts -> start measuring
   video.addEventListener('playing', () => {
-    // choose mode again dynamically (in case environment changed)
-    useRVFC = typeof HTMLVideoElement !== 'undefined' && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
-    startMeasuring();
+    frameCount = 0;
+    fpsSamples = [];
+    measuring = true;
+    modeLabel.textContent = 'requestVideoFrameCallback';
+    lastTime = null;
+    measureLoop();
   });
 
-  // on pause or ended, stop measuring
-  function onPauseOrEnded() { stopMeasuring(); }
-  video.addEventListener('pause', onPauseOrEnded);
-  video.addEventListener('ended', onPauseOrEnded);
+  video.addEventListener('pause', ()=> measuring=false);
+  video.addEventListener('ended', ()=> measuring=false);
 
-  // cleanup object URL when file replaced/unloaded
-  window.addEventListener('beforeunload', () => {
-    try { URL.revokeObjectURL(video.src); } catch(e){}
-  });
-
-  // keyboard drag-and-drop support (optional UX)
-  document.addEventListener('dragover', e => e.preventDefault());
-  document.addEventListener('drop', e => {
-    e.preventDefault();
-    const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f && f.type.startsWith('video/')) {
-      // set file input programmatically
-      const dt = new DataTransfer();
-      dt.items.add(f);
-      fileInput.files = dt.files;
-      const evt = new Event('change');
-      fileInput.dispatchEvent(evt);
-    }
-  });
-
-  // initial label
-  modeLabel.textContent = useRVFC ? 'requestVideoFrameCallback（支援）' : '不支援，將使用 Canvas 備援';
+  function measureLoop() {
+    if (!measuring) return;
+    video.requestVideoFrameCallback((now, meta) => {
+      if (lastTime) {
+        const diff = now - lastTime;
+        const fps = 1000 / diff;
+        fpsSamples.push(fps);
+        if (fpsSamples.length > 30) fpsSamples.shift();
+        frameCount++;
+        realFps.textContent = fps.toFixed(2);
+        avgFps.textContent = avg(fpsSamples).toFixed(2);
+        frames.textContent = frameCount;
+        // 檢查異常（降幀）
+        const declared = parseFloat(metaFps.textContent);
+        if (declared && avg(fpsSamples) < declared * 0.6) {
+          fpsAlert.style.display = 'block';
+          fpsAlert.textContent = `⚠️ 系統降幀：影片為 ${declared}fps，但實際只播放約 ${avg(fpsSamples).toFixed(1)}fps（可能是 Safari/iPhone 節能限制）`;
+        } else {
+          fpsAlert.style.display = 'none';
+        }
+      }
+      lastTime = now;
+      measureLoop();
+    });
+  }
 })();
 </script>
 </body>
